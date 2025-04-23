@@ -1,7 +1,38 @@
 import express from "express";
 import { pool } from "../db";
+import bcrypt from "bcrypt";
 
 const router = express.Router();
+
+router.post("/register", async (req, res): Promise<any> => {
+  const { name, email, password } = req.body;
+
+  try {
+    // Verifica si el usuario ya existe
+    const userCheck = await pool.query("SELECT * FROM users WHERE email = $1", [
+      email,
+    ]);
+    if (userCheck.rows.length > 0) {
+      return res.status(400).json({ message: "Email ya registrado" });
+    }
+
+    // Hashear contraseña
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Crear nuevo usuario
+    const result = await pool.query(
+      `INSERT INTO users (id, name, email, password, role, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, 'user', NOW(), NOW())
+       RETURNING *`,
+      [name, email, hashedPassword]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error al registrar:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+});
 
 // Crear usuario
 router.post("/", async (req, res) => {
