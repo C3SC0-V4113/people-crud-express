@@ -4,6 +4,34 @@ import bcrypt from "bcrypt";
 
 const router = express.Router();
 
+router.post("/validate", async (req, res): Promise<any> => {
+  const { email, password } = req.body;
+
+  try {
+    const userResult = await pool.query(
+      `SELECT * FROM users WHERE email = $1`,
+      [email]
+    );
+    const user = userResult.rows[0];
+
+    if (!user || !user.password) {
+      return res.status(401).json({ message: "Credenciales inválidas" });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password);
+
+    if (!isValid) {
+      return res.status(401).json({ message: "Credenciales inválidas" });
+    }
+
+    // Devuelve usuario al auth adapter
+    res.json(user);
+  } catch (error) {
+    console.error("Error al validar credenciales:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+});
+
 router.post("/register", async (req, res): Promise<any> => {
   const { name, email, password } = req.body;
 
@@ -20,14 +48,22 @@ router.post("/register", async (req, res): Promise<any> => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Crear nuevo usuario
-    const result = await pool.query(
+    const userResult = await pool.query(
       `INSERT INTO users (id, name, email, password, role, created_at, updated_at)
        VALUES (gen_random_uuid(), $1, $2, $3, 'user', NOW(), NOW())
        RETURNING *`,
       [name, email, hashedPassword]
     );
 
-    res.status(201).json(result.rows[0]);
+    const user = userResult.rows[0];
+
+    await pool.query(
+      `INSERT INTO accounts (id, user_id, type, provider, provider_account_id)
+       VALUES (gen_random_uuid(), $1, 'credentials', 'credentials', $2)`,
+      [user.id, email]
+    );
+
+    res.status(201).json(user);
   } catch (error) {
     console.error("Error al registrar:", error);
     res.status(500).json({ message: "Error interno del servidor" });
